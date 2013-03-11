@@ -65,7 +65,7 @@ function easysite_import_block_form() {
     ),
     'submit' => array(
       '#type' => 'submit',
-      '#value' => 'Import selected list',
+      '#value' => t('Import selected list'),
     ),
   );
 }
