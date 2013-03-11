@@ -40,10 +40,10 @@ function easysite_import_block_info() {
 function easysite_import_block_view($delta = '') {
   switch($delta) {
     case 'lists':
-      $block['subject'] = 'Bookmark lists that can be imported';
+      $block['subject'] = t('Bookmark lists that can be imported');
       $block['content']['description'] = array(
         '#type' => 'markup',
-        '#markup' => '<h3>Attention</h3><p>Our system from before 2013 supported multiple bookmark lists. The current system only supports one list. All from the old list will be added/merged into the list below.</p>',
+        '#markup' => '<h3>' . t('Attention') . '</h3><p>' . t('Our system from before 2013 supported multiple bookmark lists. The current system only supports one list. All from the old list will be added/merged into the list below.') . '</p>',
       );
       $block['content']['form'] = drupal_get_form('easysite_import_block_form');
   }
