@@ -1,0 +1,8 @@
+name = Easysite Import
+description = Imports bookmarks from Easysite (actually from a SocialServices database that Easysite uses).
+core = 7.x
+php = 5.2.4
+version = 7.x-1.0
+project = easysite_import
+dependencies[] = flag
+dependencies[] = ding_bookmark

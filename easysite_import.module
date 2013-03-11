@@ -1,0 +1,177 @@
+<?php
+
+/**
+ * @file
+ * Importing bookmarks from Easysite.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function easysite_import_menu() {
+  $items['admin/config/services/easysite_import'] = array(
+    'title' => 'Easysite Import',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('easysite_import_admin_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'easysite_import.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function easysite_import_block_info() {
+  $blocks = array();
+
+  $blocks['lists'] = array(
+    'info' => 'Easysite Import',
+    'cache' => DRUPAL_CACHE_PER_USER,
+  );
+
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function easysite_import_block_view($delta = '') {
+  switch($delta) {
+    case 'lists':
+      $block['subject'] = 'Bookmark lists that can be imported';
+      $block['content']['description'] = array(
+        '#type' => 'markup',
+        '#markup' => '<h3>Attention</h3><p>Our system from before 2013 supported multiple bookmark lists. The current system only supports one list. All from the old list will be added/merged into the list below.</p>',
+      );
+      $block['content']['form'] = drupal_get_form('easysite_import_block_form');
+  }
+  return $block;
+}
+
+/**
+ * Form callback for the block view.
+ */
+function easysite_import_block_form() {
+  $lists = easysite_import_lists();
+  foreach ($lists as $id => $info) {
+    $with_count[$id] = $info['name'] . ' (' . $info['count'] . ')';
+  }
+  return array(
+    'lists' => array(
+      '#type' => 'select',
+      '#options' => $with_count,
+    ),
+    'submit' => array(
+      '#type' => 'submit',
+      '#value' => 'Import selected list',
+    ),
+  );
+}
+
+/**
+ * Return a list of socialservices bookmarks lists.
+ */
+function easysite_import_lists() {
+  $uidhash = _easysite_import_get_uid_hash();
+  if (is_null($uidhash)) {
+    return NULL;
+  }
+  $database = variable_get('easysite_import_database', NULL);
+  if (is_null($database)) {
+    watchdog('easysite_import', 'No database has been set for Easysite Import', NULL, WATCHDOG_CRITICAL, 'config/admin/services/easysite_import');
+  }
+  db_set_active($database);
+  $result = db_query('SELECT tags.id, tags.name, COUNT(*) as amount
+    FROM tags
+    JOIN taggings ON taggings.tagId = tags.id
+    JOIN users u ON u.id = taggings.userId
+    WHERE u.foreignUserId = :uidhash
+    GROUP BY tags.id', array(':uidhash' => $uidhash));
+  $lists = array();
+  foreach ($result as $record) {
+    $lists[$record->id] = array('name' => $record->name, 'count' => $record->amount);
+  }
+  db_set_active();
+
+  return $lists;
+}
+
+/**
+ * Return a list of bookmarks in a given list.
+ */
+function easysite_import_block_form_submit($form, &$form_state) {
+  $lists = easysite_import_lists();
+  $list = $form_state['values']['lists'];
+  $list_name = $lists[$list]['name'];
+  $uid_hash = _easysite_import_get_uid_hash();
+  if (is_null($uid_hash)) {
+    return NULL;
+  }
+  $database = variable_get('easysite_import_database', NULL);
+  if (is_null($database)) {
+    watchdog('easysite_import', 'No database has been set for Easysite Import', NULL, WATCHDOG_CRITICAL, 'config/admin/services/easysite_import');
+  }
+  db_set_active($database);
+  $result = db_query('SELECT DISTINCT items.foreignKey as faust FROM uniqueSSitems items JOIN taggings ON taggings.uniqueSSitemId = items.id JOIN users u ON u.id = taggings.userId WHERE taggings.tagId = :list AND u.foreignUserId = :uidhash', array(':list' => $list, ':uidhash' => $uid_hash));
+  $list_items = array();
+  foreach ($result as $record) {
+    $list_items[$record->faust] = $record->faust;
+  }
+  db_set_active();
+
+  module_load_include('client.inc', 'ting');
+  // Ask ting in order to get the agency for each item.
+  $search_ids = ting_get_objects($list_items);
+  $ding_entity_ids = array();
+  foreach ($search_ids as $search_id => $value) {
+    // ting_get_objects returns the $ids given to it in the returned array as array[$id] = NULL.
+    if (!isset($value)) {
+      continue;
+    }
+    // match the result from ting to the faust numbers from easysite.
+    $search_id_faust = explode(':', $search_id);
+    if (array_key_exists($search_id_faust[1], $list_items)) {
+      $ding_entity_ids[] = $search_id;
+    }
+  }
+  // get the drupal entity ids for those agency:faust ids.
+  $entity_ids = array_keys(ding_entity_load_multiple($ding_entity_ids));
+
+  $flag = flag_get_flag('bookmark');
+  $count = 0;
+  foreach ($entity_ids as $entity_id) {
+    if (!$flag->is_flagged($entity_id)) {
+      if ($flag->flag('flag', $entity_id)) {
+        $count++;
+      }
+      else {
+        watchdog('easysite_import', 'Not able to flag entity_id "@entity_id"', array('@entity_id' => $entity_id), WATCHDOG_ERROR);
+        drupal_set_message(t('Not able to import element with id "@entity_id', array('@entity_id', $entity_id)), 'error');
+      }
+    }
+  }
+  drupal_set_message(t('The list "@name" has been imported, adding @count new materials to your bookmarks.', array('@name' => $list_name, '@count' => $count)));
+}
+
+/**
+ * Returns the uidhash used in socialservices.
+ */
+function _easysite_import_get_uid_hash() {
+  try {
+    $creds = ding_user_get_creds();
+  }
+  catch (DingProviderAuthException $e) {
+    // Redirect to auth page
+    if (module_exists('ding_user') && ($authpage = ding_user_auth_page())) {
+      // @todo redirect to auth page
+      drupal_goto($authpage, array('query' => ding_provider_get_destination()));
+    }
+    else {
+      return NULL;
+    }
+  }
+  $osecret = variable_get('easysite_import_osecret');
+  return md5($osecret . $creds['name']);
+}
