@@ -114,7 +114,12 @@ function easysite_import_block_form_submit($form, &$form_state) {
     watchdog('easysite_import', 'No database has been set for Easysite Import', NULL, WATCHDOG_CRITICAL, 'config/admin/services/easysite_import');
   }
   db_set_active($database);
-  $result = db_query('SELECT DISTINCT items.foreignKey as faust FROM uniqueSSitems items JOIN taggings ON taggings.uniqueSSitemId = items.id JOIN users u ON u.id = taggings.userId WHERE taggings.tagId = :list AND u.foreignUserId = :uidhash', array(':list' => $list, ':uidhash' => $uid_hash));
+  $result = db_query('SELECT DISTINCT items.foreignKey as faust
+    FROM uniqueSSitems items
+    JOIN taggings ON taggings.uniqueSSitemId = items.id
+    JOIN users u ON u.id = taggings.userId
+    WHERE taggings.tagId = :list
+    AND u.foreignUserId = :uidhash', array(':list' => $list, ':uidhash' => $uid_hash));
   $list_items = array();
   foreach ($result as $record) {
     $list_items[$record->faust] = $record->faust;
